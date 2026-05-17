@@ -1,0 +1,86 @@
+name: Build Custom Frida Android ARM64
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    env:
+      FRIDA_VERSION: "16.6.1"
+      ANDROID_NDK_VERSION: "25.2.9519653"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+
+          sudo apt install -y \
+            git \
+            python3 \
+            python3-pip \
+            python3-setuptools \
+            python3-wheel \
+            ninja-build \
+            meson \
+            pkg-config \
+            build-essential \
+            flex \
+            bison \
+            curl \
+            wget \
+            unzip \
+            tar \
+            ruby-full \
+            libtool \
+            autoconf \
+            automake \
+            texinfo \
+            gcc-multilib \
+            g++-multilib \
+            libc6-dev-i386 \
+            python3-venv
+
+          pip3 install --upgrade pip setuptools wheel
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK + NDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK r25c
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "ndk;${ANDROID_NDK_VERSION}"
+
+      - name: Set NDK Path
+        run: |
+          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}" >> $GITHUB_ENV
+
+      - name: Make build.sh executable
+        run: chmod +x build.sh
+
+      - name: Run build script
+        run: |
+          ./build.sh
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frida-build-output
+          path: |
+            frida/build/
+            frida/subprojects/frida-python/dist/*.whl
+          if-no-files-found: warn
