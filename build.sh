@@ -2,7 +2,7 @@
 
 # --- 1. Automated Downloading & Setup ---
 echo "[*] Cloning Frida repository..."
-git clone https://github.com/frida/frida.git
+git clone --branch 16.6.1 --depth 1 --recurse-submodules https://github.com/frida/frida.git
 cd frida
 git submodule update --init --recursive
 
