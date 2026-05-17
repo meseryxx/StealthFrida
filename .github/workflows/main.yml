@@ -1,4 +1,4 @@
-name: Build Custom Frida Android ARM64
+name: Build Custom Frida Android ARM64 (venv isolated)
 
 on:
   workflow_dispatch:
@@ -14,23 +14,21 @@ jobs:
     env:
       FRIDA_VERSION: "16.6.1"
       ANDROID_NDK_VERSION: "25.2.9519653"
-      PYTHONNOUSERSITE: "1"
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # -------------------------
-      # SYSTEM DEPENDENCIES
-      # -------------------------
-      - name: Install dependencies
+      # -----------------------------
+      # SYSTEM PACKAGES ONLY (NO PIP HERE)
+      # -----------------------------
+      - name: Install system dependencies
         run: |
           sudo apt update
 
           sudo apt install -y \
             git \
             python3 \
-            python3-pip \
             python3-dev \
             python3.10-dev \
             libpython3.10-dev \
@@ -48,29 +46,29 @@ jobs:
             autoconf \
             automake
 
-          python3 -m pip install --upgrade pip setuptools wheel meson ninja
-
-      # -------------------------
-      # HARD PYTHON FIX (IMPORTANT)
-      # -------------------------
-      - name: Force correct Python environment
+      # -----------------------------
+      # CREATE ISOLATED VENV
+      # -----------------------------
+      - name: Create Python virtual environment
         run: |
-          PY_INC=$(python3 -c "from sysconfig import get_paths; print(get_paths()['include'])")
-          PY_LIB=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
+          python3 -m venv frida-venv
+          source frida-venv/bin/activate
 
-          echo "Python include: $PY_INC"
-          echo "Python lib: $PY_LIB"
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install meson ninja
 
-          echo "PYTHON_INCLUDE_DIR=$PY_INC" >> $GITHUB_ENV
-          echo "PYTHON_LIB_DIR=$PY_LIB" >> $GITHUB_ENV
+          echo "VENV_PATH=$PWD/frida-venv" >> $GITHUB_ENV
 
-          # IMPORTANT: force correct config path
-          echo "Python config header check:"
-          ls $PY_INC/pyconfig.h || true
+      # -----------------------------
+      # USE VENV FOR ALL BUILD STEPS
+      # -----------------------------
+      - name: Activate venv globally for job
+        run: |
+          echo "$VENV_PATH/bin" >> $GITHUB_PATH
 
-      # -------------------------
-      # JAVA + ANDROID
-      # -------------------------
+      # -----------------------------
+      # JAVA + ANDROID SDK
+      # -----------------------------
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -89,45 +87,38 @@ jobs:
         run: |
           echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}" >> $GITHUB_ENV
 
-      # -------------------------
-      # FORCE MESON TO NOT USE BROKEN PYTHON
-      # -------------------------
-      - name: Clean Meson + Frida cache
+      # -----------------------------
+      # VERIFY PYTHON (CRITICAL FIX FOR pyconfig.h)
+      # -----------------------------
+      - name: Verify Python headers
+        run: |
+          python -c "import sysconfig; print(sysconfig.get_paths()['include'])"
+          ls $(python -c "import sysconfig; print(sysconfig.get_paths()['include'])")/pyconfig.h
+
+      # -----------------------------
+      # CLEAN BUILD CACHE
+      # -----------------------------
+      - name: Clean build directories
         run: |
           rm -rf frida/build
           rm -rf frida/subprojects/*/build
           rm -rf ~/.cache/meson || true
 
-      # -------------------------
-      # PATCH BUILD SCRIPT
-      # -------------------------
-      - name: Fix build script environment
+      # -----------------------------
+      # BUILD
+      # -----------------------------
+      - name: Run build script
         run: |
           chmod +x build.sh
-
-          # FORCE correct Python include path into compiler flags
-          sed -i "1i export CFLAGS=\"-I$PYTHON_INCLUDE_DIR\"" build.sh
-
-      # -------------------------
-      # BUILD
-      # -------------------------
-      - name: Build Frida
-        env:
-          CC: gcc
-          CXX: g++
-          PYTHON: python3
-          PYTHONPATH: /usr/lib/python3/dist-packages
-          MESON_PYTHON_PATH: /usr/bin/python3
-        run: |
           ./build.sh
 
-      # -------------------------
+      # -----------------------------
       # ARTIFACTS
-      # -------------------------
-      - name: Upload artifacts
+      # -----------------------------
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: frida-build
+          name: frida-build-output
           path: |
             frida/build/
             frida/subprojects/frida-python/dist/*.whl
